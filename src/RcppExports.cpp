@@ -12,38 +12,35 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // estimate_D
-Rcpp::List estimate_D(const Eigen::VectorXd& r0, const Eigen::MatrixXd& masterZ, const Eigen::VectorXd& E, const Eigen::MatrixXd& masterV, const Eigen::MatrixXi& MAP, int n, int k, int t);
-RcppExport SEXP _DCENt_estimate_D(SEXP r0SEXP, SEXP masterZSEXP, SEXP ESEXP, SEXP masterVSEXP, SEXP MAPSEXP, SEXP nSEXP, SEXP kSEXP, SEXP tSEXP) {
+Rcpp::List estimate_D(const Eigen::MatrixXd& masterZ, const Eigen::VectorXd& E, const Eigen::MatrixXd& masterV, const std::vector<std::vector<int>>& map_idxs, int n, int k, int t);
+RcppExport SEXP _DCENt_estimate_D(SEXP masterZSEXP, SEXP ESEXP, SEXP masterVSEXP, SEXP map_idxsSEXP, SEXP nSEXP, SEXP kSEXP, SEXP tSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type r0(r0SEXP);
     Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type masterZ(masterZSEXP);
     Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type E(ESEXP);
     Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type masterV(masterVSEXP);
-    Rcpp::traits::input_parameter< const Eigen::MatrixXi& >::type MAP(MAPSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::vector<int>>& >::type map_idxs(map_idxsSEXP);
     Rcpp::traits::input_parameter< int >::type n(nSEXP);
     Rcpp::traits::input_parameter< int >::type k(kSEXP);
     Rcpp::traits::input_parameter< int >::type t(tSEXP);
-    rcpp_result_gen = Rcpp::wrap(estimate_D(r0, masterZ, E, masterV, MAP, n, k, t));
+    rcpp_result_gen = Rcpp::wrap(estimate_D(masterZ, E, masterV, map_idxs, n, k, t));
     return rcpp_result_gen;
 END_RCPP
 }
 // estimate_E
-Rcpp::List estimate_E(const Eigen::VectorXd& r0, const Eigen::MatrixXd& masterZ, const Eigen::MatrixXd& D, const Eigen::MatrixXd& masterV, const Eigen::MatrixXi& MAP, int n, int k, int t);
-RcppExport SEXP _DCENt_estimate_E(SEXP r0SEXP, SEXP masterZSEXP, SEXP DSEXP, SEXP masterVSEXP, SEXP MAPSEXP, SEXP nSEXP, SEXP kSEXP, SEXP tSEXP) {
+Rcpp::List estimate_E(const Eigen::MatrixXd& masterZ, const Eigen::MatrixXd& D, const Eigen::MatrixXd& masterV, int n, int k, int t);
+RcppExport SEXP _DCENt_estimate_E(SEXP masterZSEXP, SEXP DSEXP, SEXP masterVSEXP, SEXP nSEXP, SEXP kSEXP, SEXP tSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type r0(r0SEXP);
     Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type masterZ(masterZSEXP);
     Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type D(DSEXP);
     Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type masterV(masterVSEXP);
-    Rcpp::traits::input_parameter< const Eigen::MatrixXi& >::type MAP(MAPSEXP);
     Rcpp::traits::input_parameter< int >::type n(nSEXP);
     Rcpp::traits::input_parameter< int >::type k(kSEXP);
     Rcpp::traits::input_parameter< int >::type t(tSEXP);
-    rcpp_result_gen = Rcpp::wrap(estimate_E(r0, masterZ, D, masterV, MAP, n, k, t));
+    rcpp_result_gen = Rcpp::wrap(estimate_E(masterZ, D, masterV, n, k, t));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -126,41 +123,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// calc_ZDZ_plus_E_list
-Rcpp::List calc_ZDZ_plus_E_list(const Eigen::MatrixXd& masterZt, const Eigen::MatrixXd& D, const Eigen::VectorXd& E, const Eigen::MatrixXi& MAP, int n, int k, int t);
-RcppExport SEXP _DCENt_calc_ZDZ_plus_E_list(SEXP masterZtSEXP, SEXP DSEXP, SEXP ESEXP, SEXP MAPSEXP, SEXP nSEXP, SEXP kSEXP, SEXP tSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type masterZt(masterZtSEXP);
-    Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type D(DSEXP);
-    Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type E(ESEXP);
-    Rcpp::traits::input_parameter< const Eigen::MatrixXi& >::type MAP(MAPSEXP);
-    Rcpp::traits::input_parameter< int >::type n(nSEXP);
-    Rcpp::traits::input_parameter< int >::type k(kSEXP);
-    Rcpp::traits::input_parameter< int >::type t(tSEXP);
-    rcpp_result_gen = Rcpp::wrap(calc_ZDZ_plus_E_list(masterZt, D, E, MAP, n, k, t));
-    return rcpp_result_gen;
-END_RCPP
-}
-// calc_ZDZ_plus_E
-Rcpp::List calc_ZDZ_plus_E(const Eigen::MatrixXd& masterZt, const Eigen::MatrixXd& D, const Eigen::VectorXd& E, const Eigen::MatrixXi& MAP, int n, int k, int t, int nkt);
-RcppExport SEXP _DCENt_calc_ZDZ_plus_E(SEXP masterZtSEXP, SEXP DSEXP, SEXP ESEXP, SEXP MAPSEXP, SEXP nSEXP, SEXP kSEXP, SEXP tSEXP, SEXP nktSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type masterZt(masterZtSEXP);
-    Rcpp::traits::input_parameter< const Eigen::MatrixXd& >::type D(DSEXP);
-    Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type E(ESEXP);
-    Rcpp::traits::input_parameter< const Eigen::MatrixXi& >::type MAP(MAPSEXP);
-    Rcpp::traits::input_parameter< int >::type n(nSEXP);
-    Rcpp::traits::input_parameter< int >::type k(kSEXP);
-    Rcpp::traits::input_parameter< int >::type t(tSEXP);
-    Rcpp::traits::input_parameter< int >::type nkt(nktSEXP);
-    rcpp_result_gen = Rcpp::wrap(calc_ZDZ_plus_E(masterZt, D, E, MAP, n, k, t, nkt));
-    return rcpp_result_gen;
-END_RCPP
-}
 // check_openmp
 bool check_openmp();
 RcppExport SEXP _DCENt_check_openmp() {
@@ -173,14 +135,12 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_DCENt_estimate_D", (DL_FUNC) &_DCENt_estimate_D, 8},
-    {"_DCENt_estimate_E", (DL_FUNC) &_DCENt_estimate_E, 8},
+    {"_DCENt_estimate_D", (DL_FUNC) &_DCENt_estimate_D, 7},
+    {"_DCENt_estimate_E", (DL_FUNC) &_DCENt_estimate_E, 6},
     {"_DCENt_estimate_all", (DL_FUNC) &_DCENt_estimate_all, 14},
     {"_DCENt_estimate_DEbeta", (DL_FUNC) &_DCENt_estimate_DEbeta, 17},
     {"_DCENt_covCalc", (DL_FUNC) &_DCENt_covCalc, 2},
     {"_DCENt_Z_assemble", (DL_FUNC) &_DCENt_Z_assemble, 6},
-    {"_DCENt_calc_ZDZ_plus_E_list", (DL_FUNC) &_DCENt_calc_ZDZ_plus_E_list, 7},
-    {"_DCENt_calc_ZDZ_plus_E", (DL_FUNC) &_DCENt_calc_ZDZ_plus_E, 8},
     {"_DCENt_check_openmp", (DL_FUNC) &_DCENt_check_openmp, 0},
     {NULL, NULL, 0}
 };

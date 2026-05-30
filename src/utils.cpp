@@ -3,6 +3,43 @@
 #include "utils.h"
 // [[Rcpp::depends(RcppEigen)]]
 
+
+std::vector<std::vector<int>> MAP_to_idxs(const Eigen::MatrixXi & MAP,
+                                          int n, int k, int t)
+{
+    std::vector<std::vector<int>> map_idxs(n);
+    
+    // Precompute the active indices for every subject exactly once
+    for(int i = 0; i < n; ++i) {
+        for(int j = 0; j < k*t; ++j) {
+            if(MAP(i, j) == 1) {
+                map_idxs[i].push_back(j);
+            }
+        }
+    }
+    return(map_idxs);
+}
+
+std::vector<std::vector<int>> MAP_to_idxs_2k(const Eigen::MatrixXi & MAP, int n, int k, int t)
+{
+    std::vector<std::vector<int>> map_idxs_2k(n);
+
+    for(int i = 0; i < n; ++i) {
+        // Random Effects Covariance Mapping (size 2k)
+        for(int c = 0; c < 2*k; ++c) {
+            int node = c / 2;
+            bool has_data = false;
+            for(int time_idx = 0; time_idx < t; ++time_idx) {
+                if(MAP(i, node * t + time_idx) != 0) {
+                    has_data = true; break;
+                }
+            }
+            if(has_data) map_idxs_2k[i].push_back(c);
+        }
+    }
+    return(map_idxs_2k);
+}
+
 double var(const Eigen::VectorXd & vec)
 {
     return((vec.array() - vec.array().mean()).square().mean());
@@ -65,39 +102,26 @@ Eigen::ArrayXi loc_a_in_b(double a, const Eigen::VectorXd & b)
     return(out_vec);
 }
 
-void build_V_list_from_master(std::vector<Eigen::MatrixXd> & V, const Eigen::MatrixXd & masterV, const Eigen::MatrixXi & MAP, int n, int k, int t)
+void build_V_list_from_master(std::vector<Eigen::MatrixXd> & V, const Eigen::MatrixXd & masterV, const std::vector<std::vector<int>> & map_idxs, int n, int k, int t)
 {
-    Eigen::MatrixXi kt_vec = MAP.rowwise().sum();
     for(int i=0; i<n; ++i)
     {
-        int kt = kt_vec(i);
+        int kt = map_idxs[i].size();
         Eigen::MatrixXd Vi(kt,kt);
-        V_assemble_IP(masterV,Vi,MAP,i,k,t,kt);
+        V_assemble_IP(masterV,Vi,map_idxs[i],kt);
         V[i] = Vi;
     }
 }
 
 void V_assemble_IP(const Eigen::Ref<const Eigen::MatrixXd> & masterV, 
                    Eigen::MatrixXd & V_out,
-                   const Eigen::Ref<const Eigen::MatrixXi> & MAP,
-                   int i, int k, int t, int kt)
+                   const std::vector<int> & map_idxs, int kt)
 {
     V_out.setZero(kt,kt);
-    int cnt0 = 0; 
-    for(int j=0; j<(k*t);++j)
-    {
-        if(MAP(i,j) == 1)
-        {
-            int cnt1 = 0;
-            for(int l=0; l<(k*t);++l)
-            {
-                if(MAP(i,l) == 1)
-                {
-                    V_out(cnt0,cnt1) = masterV(j,l);
-                    cnt1++;
-                }
-            }
-            cnt0++;
+    int sz = map_idxs.size();
+    for(int r = 0; r < sz; ++r) {
+        for(int c = 0; c < sz; ++c) {
+            V_out(r, c) = masterV(map_idxs[r], map_idxs[c]);
         }
     }
 }
@@ -184,14 +208,101 @@ Eigen::MatrixXd covCalc(const Eigen::MatrixXd & X, const Eigen::MatrixXi & MAP)
     return cov;
 }
 
+Eigen::MatrixXd covCalc(const Eigen::MatrixXd & X, const std::vector<std::vector<int>> & map_idxs, int p)
+{
+    int n = X.rows();
+    Eigen::MatrixXd SumXY = Eigen::MatrixXd::Zero(p, p);
+    Eigen::MatrixXd N = Eigen::MatrixXd::Zero(p, p);
+    Eigen::MatrixXd SumX_shared = Eigen::MatrixXd::Zero(p, p);
+
+    for(int i = 0; i < n; ++i)
+    {
+        // Instantly grab the precomputed active list!
+        const std::vector<int>& active = map_idxs[i];
+        
+        for(size_t idx1 = 0; idx1 < active.size(); ++idx1)
+        {
+            int c1 = active[idx1];
+            double x1 = X(i, c1);
+            for(size_t idx2 = 0; idx2 <= idx1; ++idx2)
+            {
+                int c2 = active[idx2];
+                double x2 = X(i, c2);
+
+                SumXY(c1, c2) += x1 * x2;
+                N(c1, c2) += 1.0;
+                SumX_shared(c1, c2) += x1;
+                if(c1 != c2) SumX_shared(c2, c1) += x2;
+            }
+        }
+    }
+
+    Eigen::MatrixXd cov = Eigen::MatrixXd::Zero(p,p);
+    for(int i=0; i < p; ++i) {
+        for(int j=0; j <= i; ++j) {
+            double Nij = N(i,j);
+            if(Nij > 1.0) {
+                double val = (SumXY(i, j) - (SumX_shared(i, j) * SumX_shared(j, i) / Nij)) / Nij;
+                cov(i,j) = val;
+                if(i != j) cov(j,i) = val;
+            }
+        }
+    }
+    return cov;
+}
+
+
+void covCalc(const Eigen::MatrixXd & X, const std::vector<std::vector<int>> & map_idxs, 
+             Eigen::MatrixXd & cov, int p)
+{
+    int n = X.rows();
+    Eigen::MatrixXd SumXY = Eigen::MatrixXd::Zero(p, p);
+    Eigen::MatrixXd N = Eigen::MatrixXd::Zero(p, p);
+    Eigen::MatrixXd SumX_shared = Eigen::MatrixXd::Zero(p, p);
+
+    for(int i = 0; i < n; ++i)
+    {
+        // Instantly grab the precomputed active list!
+        const std::vector<int>& active = map_idxs[i];
+        
+        for(size_t idx1 = 0; idx1 < active.size(); ++idx1)
+        {
+            int c1 = active[idx1];
+            double x1 = X(i, c1);
+            for(size_t idx2 = 0; idx2 <= idx1; ++idx2)
+            {
+                int c2 = active[idx2];
+                double x2 = X(i, c2);
+
+                SumXY(c1, c2) += x1 * x2;
+                N(c1, c2) += 1.0;
+                SumX_shared(c1, c2) += x1;
+                if(c1 != c2) SumX_shared(c2, c1) += x2;
+            }
+        }
+    }
+
+    cov = Eigen::MatrixXd::Zero(p,p);
+    for(int i=0; i < p; ++i) {
+        for(int j=0; j <= i; ++j) {
+            double Nij = N(i,j);
+            if(Nij > 1.0) {
+                double val = (SumXY(i, j) - (SumX_shared(i, j) * SumX_shared(j, i) / Nij)) / Nij;
+                cov(i,j) = val;
+                if(i != j) cov(j,i) = val;
+            }
+        }
+    }
+    return;
+}
+
 void get_cov_stats(const Eigen::Ref<const Eigen::MatrixXd>& R, 
-                   const Eigen::Ref<const Eigen::MatrixXi>& MAP, 
+                   const std::vector<std::vector<int>>& active_lists, 
                    const std::vector<int>& indices,
                    Eigen::MatrixXd& SumXY, Eigen::MatrixXd& N, 
                    Eigen::MatrixXd& SumX_shared, Eigen::MatrixXd& SumRsq)
 {
     int p = R.cols();
-    int full_kt = MAP.cols();
 
     SumXY.setZero(p, p);
     N.setZero(p, p);
@@ -200,27 +311,8 @@ void get_cov_stats(const Eigen::Ref<const Eigen::MatrixXd>& R,
 
     for(int row_idx : indices) 
     {
-        // 1. Find active nodes for this subject
-        std::vector<int> active;
-        active.reserve(p);
-        // SAFE MAPPING
-        if (p == full_kt) {
-            for(int c = 0; c < p; ++c) {
-                if(MAP(row_idx, c) != 0) active.push_back(c);
-            }
-        } else {
-            int timepts = full_kt / (p / 2);
-            for(int c = 0; c < p; ++c) {
-                int node = c / 2;
-                bool has_data = false;
-                for(int time = 0; time < timepts; ++time) {
-                    if(MAP(row_idx, node * timepts + time) != 0) {
-                        has_data = true; break;
-                    }
-                }
-                if(has_data) active.push_back(c);
-            }
-        }
+        // Instantly grab the precomputed active list
+        const std::vector<int>& active = active_lists[row_idx];
 
         // 2. Accumulate raw sums for the active pairs
         for(size_t idx1 = 0; idx1 < active.size(); ++idx1) 
@@ -282,36 +374,6 @@ void build_cov_and_theta(const Eigen::MatrixXd& SumXY, const Eigen::MatrixXd& N,
             }
         }
     }
-}
-
-Eigen::VectorXd varCalcDiag(const Eigen::MatrixXd & X, const Eigen::MatrixXi & MAP, bool print)
-{
-    int n = X.rows();
-    int p = X.cols();
-    Eigen::VectorXd var = Eigen::VectorXd::Zero(p);
-
-    for(int j = 0; j < p; ++j)
-    {
-        double sum = 0.0;
-        double sumSq = 0.0;
-        int n_obs = 0;
-        for(int i=0;i<n;++i)
-        {
-            if(MAP(i,j) != 0)
-            {
-                double tmp = X(i,j);
-                sum += tmp;
-                sumSq += tmp * tmp;
-                n_obs++;
-            }
-        }
-        if(n_obs > 1)
-        {
-            double mean = sum/n_obs;
-            var(j) = (sumSq / n_obs) - (mean * mean);
-        }
-    }
-    return(var);
 }
 
 void vec2list(const std::vector<Eigen::MatrixXd>& vec, Rcpp::List & out)
@@ -409,10 +471,10 @@ Eigen::MatrixXd Z_assemble(const Eigen::MatrixXd & masterZ,
 
 void Et_assemble_IP(const Eigen::Ref<const Eigen::VectorXd> & E, 
                     Eigen::VectorXd & Et,
-                    const Eigen::Ref<const Eigen::MatrixXi> & MAP, 
-                    int i, int k, int t, int kt)
+                    const std::vector<int> & map_idxs, 
+                    int k, int t)
 {
-    // Function body remains identical
+    int kt = map_idxs.size();
     Et.resize(kt);
     int cnt = 0;
     int cnt2 = 0;
@@ -420,160 +482,59 @@ void Et_assemble_IP(const Eigen::Ref<const Eigen::VectorXd> & E,
     {
         for(int l = 0; l < t; ++l)
         {
-        if(MAP(i,cnt2) == 1)
-        {
-            Et(cnt) = E(j);
-            cnt++;
-        }
-        cnt2++;
+            if(std::find(map_idxs.begin(), map_idxs.end(), cnt2) != map_idxs.end())
+            {
+                Et(cnt) = E(j);
+                cnt++;
+            }
+            cnt2++;
         }
     }
 }
 
 void Z_assemble_IP(const Eigen::Ref<const Eigen::MatrixXd> & masterZt, 
                    Eigen::MatrixXd & Zt_out,
-                   const Eigen::Ref<const Eigen::MatrixXi> & MAP,
-                   int i, int k, int t, int kt)
+                   const std::vector<int> & map_idxs,
+                   int k)
 {
     // Function body remains identical
-    Zt_out.resize(2*k,kt);
-    int cnt = 0;
-    for(int j = 0; j<k*t; ++j)
+    int sz = map_idxs.size();
+    Zt_out.resize(2*k,sz);
+    //int cnt = 0;
+    
+    for(int j = 0; j<sz; ++j)
     {
-        if(MAP(i,j) == 1)
-        {
-            Zt_out.col(cnt).noalias() = masterZt.col(j);
-            cnt++;
-        }
+        Zt_out.col(j).noalias() = masterZt.col(map_idxs[j]);
     }
 }
-
-void Et_Z_assemble_IP(const Eigen::Ref<const Eigen::VectorXd> & masterE, 
-                   Eigen::VectorXd & Et_out,
-                   const Eigen::Ref<const Eigen::MatrixXd> & masterZt, 
-                   Eigen::MatrixXd & Zt_out,
-                   const Eigen::Ref<const Eigen::MatrixXi> & MAP,
-                   int i, int k, int t, int kt)
-{
-    Zt_out.resize(2*k,kt);
-    Et_out.resize(kt);
-    int cnt = 0;
-    int cnt2 = 0;
-    for(int j = 0; j<k; ++j)
-    {
-        for(int l = 0; l < t; ++l)
-        {
-            if(MAP(i,cnt2) == 1)
-            {
-                Et_out(cnt) = masterE(j);
-                Zt_out.col(cnt).noalias() = masterZt.col(j);
-                cnt++;
-            }
-        }
-        cnt2++;
-    }
-}
-
-void calc_ZDZ_plus_E_list(const Eigen::MatrixXd & masterZt,
-                          const Eigen::MatrixXd & D, const Eigen::VectorXd & E,
-                          std::vector<Eigen::MatrixXd> & out, 
-                          const Eigen::MatrixXi & MAP,
-                          int n, int k, int t)
-{
-    Eigen::MatrixXi kt_vec = MAP.rowwise().sum();
-    Eigen::MatrixXd Zti(2*k,k*t), Vi(k*t,k*t);
-    Eigen::VectorXd Et(k*t);
-    for(int i=0; i<n; ++i)
-    {
-        int kt = kt_vec(i);
-        if(kt == 0) continue;
-        Z_assemble_IP(masterZt,Zti,MAP,i,k,t,kt);
-        Et_assemble_IP(E,Et,MAP,i,k,t,kt);
-        Vi = Zti.transpose() * D * Zti;
-        Vi.diagonal() += Et;
-        out[i] = Vi;
-    }
-}
-
-// [[Rcpp::export]]
-Rcpp::List calc_ZDZ_plus_E_list(const Eigen::MatrixXd & masterZt,
-                          const Eigen::MatrixXd & D, const Eigen::VectorXd & E,
-                          const Eigen::MatrixXi & MAP,
-                          int n, int k, int t)
-{
-    Eigen::VectorXd r0;
-    std::vector<Eigen::MatrixXd> out(n);
-    calc_ZDZ_plus_E_list(masterZt,D,E,out,MAP,n,k,t);
-    return(Rcpp::wrap(out));
-}
-
-void calc_ZDZ_plus_E(const Eigen::MatrixXd & masterZt,
-                    const Eigen::MatrixXd & D, 
-                    const Eigen::VectorXd & E,
-                    Eigen::MatrixXd & out, 
-                    const Eigen::MatrixXi & MAP,
-                    int n, int k, int t, int nkt)
-{
-    out.resize(nkt,nkt);
-    Eigen::VectorXi kt_vec = MAP.rowwise().sum();
-    Eigen::MatrixXd Zti(k*t,2*k), Vi(k*t,k*t);
-    Eigen::VectorXd Et(k*t);
-    int cnt=0;
-    for(int i=0; i<n; ++i)
-    {
-        int kt = kt_vec(i);
-        if(kt == 0) continue;
-        Z_assemble_IP(masterZt,Zti,MAP,i,k,t,kt);
-        Et_assemble_IP(E,Et,MAP,i,k,t,kt);
-        Vi = Zti.transpose() * D * Zti;
-        Vi.diagonal() += Et;
-        out.block(cnt,cnt,kt,kt) =Vi;
-        cnt += kt;
-    }
-}
-
-// [[Rcpp::export]]
-Rcpp::List calc_ZDZ_plus_E(const Eigen::MatrixXd & masterZt,
-                          const Eigen::MatrixXd & D,
-                          const Eigen::VectorXd & E,
-                          const Eigen::MatrixXi & MAP,
-                          int n, int k, int t, int nkt)
-{
-    Eigen::VectorXd r0;
-    Eigen::MatrixXd masterZ;
-    Eigen::MatrixXd out(nkt,nkt);
-    calc_ZDZ_plus_E(masterZt,D,E,out,MAP,n,k,t,nkt);
-    return(Rcpp::wrap(out));
-}
-
 
 void estimate_beta(const Eigen::MatrixXd & X, const Eigen::VectorXd & y, 
-                   const Eigen::VectorXi kt_vec, const Eigen::MatrixXi & MAP,
+                   const Eigen::VectorXi kt_vec, const std::vector<std::vector<int>> & map_idxs,
                    const Eigen::MatrixXd & masterV, Eigen::VectorXd & beta,
                    int n, int k, int t, bool verbose, double eigen_threshold)
 {
     int q = X.cols();
     Eigen::MatrixXd XVX = Eigen::MatrixXd::Zero(q,q);
     Eigen::VectorXd XVy = Eigen::VectorXd::Zero(q);
-    Eigen::MatrixXd Vi(k*t,k*t), Xi;
-    Eigen::VectorXd yi;
+    Eigen::MatrixXd Vi(k*t,k*t);//, Xi;
+    //Eigen::VectorXd yi;
 
     int cnt = 0;
     for(int i=0; i<n; ++i)
     {
         int kt = kt_vec(i);
         if(kt == 0) continue;
-        V_assemble_IP(masterV,Vi,MAP,i,k,t,kt);
+        V_assemble_IP(masterV,Vi,map_idxs[i],kt);
 
         // Map the current subject's X and y
-        Xi = X.block(cnt, 0, kt, q);
-        yi = y.segment(cnt, kt);
+        auto Xi = X.block(cnt, 0, kt, q);
+        auto yi = y.segment(cnt, kt);
 
         Eigen::LLT<Eigen::MatrixXd> llt_Vi(Vi);
         if(llt_Vi.info() == Eigen::Success)
         {
-            XVX += Xi.transpose() * llt_Vi.solve(Xi);
-            XVy += Xi.transpose() * llt_Vi.solve(yi);
+            XVX.noalias() += Xi.transpose() * llt_Vi.solve(Xi);
+            XVy.noalias() += Xi.transpose() * llt_Vi.solve(yi);
         }
         else{ // fallback if Vi not invertible
             Eigen::CompleteOrthogonalDecomposition<Eigen::MatrixXd> cod_Vi;
@@ -584,8 +545,8 @@ void estimate_beta(const Eigen::MatrixXd & X, const Eigen::VectorXd & y,
             // Reconstruct the safely inverted matrix
             //Eigen::MatrixXd Vi_inv = evecs * evals.asDiagonal() * evecs.transpose();
 
-            XVX += Xi.transpose() * cod_Vi.solve(Xi);//Vi_inv * Xi;
-            XVy += Xi.transpose() * cod_Vi.solve(yi);//Vi_inv * yi;
+            XVX.noalias() += Xi.transpose() * cod_Vi.solve(Xi);//Vi_inv * Xi;
+            XVy.noalias() += Xi.transpose() * cod_Vi.solve(yi);//Vi_inv * yi;
         }
         cnt += kt;
     }
@@ -614,81 +575,82 @@ void estimate_beta2(const Eigen::Ref<const Eigen::MatrixXd> & X,
                     const Eigen::Ref<const Eigen::MatrixXd> & Zt,
                     const Eigen::Ref<const Eigen::MatrixXd> & D,
                     const Eigen::Ref<const Eigen::VectorXd> & E,
-                    const Eigen::VectorXi & kt_vec, 
-                    const Eigen::Ref<const Eigen::MatrixXi> & MAP,
+                    const std::vector<std::vector<int>> & map_idxs_kt,
                     Eigen::VectorXd & beta,
                     int n, int k, int t)
 {
     int q = X.cols();
     Eigen::MatrixXd XVX = Eigen::MatrixXd::Zero(q,q);
     Eigen::VectorXd XVy = Eigen::VectorXd::Zero(q);
-    // 1. Invert D EXACTLY ONCE outside the loop (Massive CPU saving!)
-    Eigen::MatrixXd D_inv;
+    /*Eigen::MatrixXd D_inv;
     Eigen::LDLT<Eigen::MatrixXd> ldlt_D(D);
     if(ldlt_D.info() == Eigen::Success) {
         D_inv = ldlt_D.solve(Eigen::MatrixXd::Identity(2*k, 2*k));
     } else {
         D_inv = D.completeOrthogonalDecomposition().pseudoInverse();
-    }
+    }*/
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(D);
+    Eigen::VectorXd evals = es.eigenvalues().cwiseMax(0.0); // Mathematically enforce non-negative
+    Eigen::MatrixXd L = es.eigenvectors() * evals.cwiseSqrt().asDiagonal(); // D = LL^T
 
-    Eigen::MatrixXd Zti, Xi, ZiX, M;
-    Eigen::VectorXd yi, E_inv, Ziy;
+    Eigen::MatrixXd Zti, ZiX, M;
+    Eigen::VectorXd E_inv, Ziy;
     int cnt = 0;
     
     for(int i = 0; i < n; ++i)
     {
-        int kt = kt_vec(i);
+        int kt = map_idxs_kt[i].size();//kt_vec(i);
         
         // Get Z for this subject
-        Z_assemble_IP(Zt, Zti, MAP, i, k, t, kt);
+        Z_assemble_IP(Zt, Zti, map_idxs_kt[i],k);
         
         // Bypass creating a dense Et matrix. Just grab the inverted diagonal
         E_inv.resize(kt);
-        int cnt2 = 0, c = 0;
-        for(int j = 0; j < k; ++j) {
-            for(int l = 0; l < t; ++l) {
-                if(MAP(i, cnt2) == 1) {
-                    E_inv(c++) = 1.0 / E(j); 
-                }
-                cnt2++;
-            }
+        int c = 0;
+        for(int idx : map_idxs_kt[i]) {
+            E_inv(c++) = 1.0 / E(idx / t); 
         }
         
         // Map the current subject's X and y
-        Xi = X.block(cnt, 0, kt, q);
-        yi = y.segment(cnt, kt);
+        auto Xi = X.block(cnt, 0, kt, q);
+        auto yi = y.segment(cnt, kt);
         
         // The Woodbury Transformation Variables
         Eigen::MatrixXd X_tilde = E_inv.asDiagonal() * Xi;
         Eigen::VectorXd y_tilde = E_inv.asDiagonal() * yi;
+        Eigen::MatrixXd Ui = Zti.transpose() * L;
+        Eigen::MatrixXd Ui_tilde = E_inv.asDiagonal() * Ui;
         
         // Accumulate the base E^-1 terms
         XVX.noalias() += Xi.transpose() * X_tilde;
         XVy.noalias() += Xi.transpose() * y_tilde;
-        
-        // Inner Woodbury components
-        ZiX = Zti * X_tilde;  
-        Ziy = Zti * y_tilde;  
+    
         
         // Inner matrix M = D^-1 + Z^T * E^-1 * Z  (Always exactly 2k x 2k)
-        M = D_inv + Zti * E_inv.asDiagonal() * Zti.transpose(); 
+        M = Eigen::MatrixXd::Identity(2*k, 2*k) + Ui.transpose() * Ui_tilde; 
+
+        // Inner Woodbury components
+        Eigen::MatrixXd UiX = Ui_tilde.transpose() * Xi;  
+        Eigen::VectorXd Uiy = Ui_tilde.transpose() * yi;  
         
         // Fast 2k x 2k decomposition
-        Eigen::LDLT<Eigen::MatrixXd> ldlt_M(M);
-        if(ldlt_M.info() == Eigen::Success)
+        Eigen::LLT<Eigen::MatrixXd> llt_M(M);
+        if(llt_M.info() == Eigen::Success)
         {
-            XVX.noalias() -= ZiX.transpose() * ldlt_M.solve(ZiX);
-            XVy.noalias() -= ZiX.transpose() * ldlt_M.solve(Ziy);
+            XVX.noalias() -= UiX.transpose() * llt_M.solve(UiX);
+            XVy.noalias() -= UiX.transpose() * llt_M.solve(Uiy);
         }
         else
         {
             Eigen::MatrixXd M_inv = M.completeOrthogonalDecomposition().pseudoInverse();
-            XVX.noalias() -= ZiX.transpose() * M_inv * ZiX;
-            XVy.noalias() -= ZiX.transpose() * M_inv * Ziy;
+            XVX.noalias() -= UiX.transpose() * M_inv * UiX;
+            XVy.noalias() -= UiX.transpose() * M_inv * Uiy;
         }
         
         cnt += kt;
     }
+    // Ensure XVX is symmetric
+    XVX = 0.5 * (XVX + XVX.transpose()).eval();
     // Final beta solve outside the loop
     Eigen::LDLT<Eigen::MatrixXd> ldlt_XVX(XVX);
     if(ldlt_XVX.info() == Eigen::Success)
@@ -718,42 +680,24 @@ Eigen::VectorXd R_expand(const Eigen::VectorXd & R,
     return(R_out);
 }
 
-Eigen::MatrixXd RtR(const Eigen::MatrixXd & R, const Eigen::MatrixXi & MAP)
+Eigen::MatrixXd RtR(const Eigen::MatrixXd & R, const std::vector<std::vector<int>>& active_lists)
 {
     int n = R.rows();
     int p = R.cols();
-    int full_kt = MAP.cols();
 
     Eigen::MatrixXd SumRsq = Eigen::MatrixXd::Zero(p, p);
     Eigen::MatrixXd N = Eigen::MatrixXd::Zero(p, p);
 
     for(int i = 0; i < n; ++i)
     {
-        std::vector<int> active;
-        active.reserve(p);
-        // SAFE MAPPING
-        if (p == full_kt) {
-            for(int c = 0; c < p; ++c) {
-                if(MAP(i, c) != 0) active.push_back(c);
-            }
-        } else {
-            int timepts = full_kt / (p / 2);
-            for(int c = 0; c < p; ++c) {
-                int node = c / 2;
-                bool has_data = false;
-                for(int time = 0; time < timepts; ++time) {
-                    if(MAP(i, node * timepts + time) != 0) {
-                        has_data = true; break;
-                    }
-                }
-                if(has_data) active.push_back(c);
-            }
-        }
+        // Instantly grab the precomputed active list
+        const std::vector<int>& active = active_lists[i];
 
         for(size_t idx1 = 0; idx1 < active.size(); ++idx1)
         {
             int c1 = active[idx1];
-            double rsq1 = R(i, c1) * R(i, c1); // Vectorized Square inside the loop!
+            double rsq1 = R(i, c1) * R(i, c1); 
+            
             for(size_t idx2 = 0; idx2 <= idx1; ++idx2)
             {
                 int c2 = active[idx2];

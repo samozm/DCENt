@@ -14,6 +14,11 @@
 #endif
 // [[Rcpp::depends(RcppEigen)]]
 
+std::vector<std::vector<int>> MAP_to_idxs(const Eigen::MatrixXi & MAP,
+                                          int n, int k, int t);
+
+std::vector<std::vector<int>> MAP_to_idxs_2k(const Eigen::MatrixXi & MAP, int n, int k, int t);
+
 double var(const Eigen::VectorXd & vec);
 
 std::string printdims(const Eigen::MatrixXd & obj);
@@ -28,19 +33,23 @@ int a_in_b(double a, const Eigen::VectorXd & b);
 
 Eigen::ArrayXi loc_a_in_b(double a, const Eigen::VectorXd & b);
 
-void build_V_list_from_master(std::vector<Eigen::MatrixXd> & V, const Eigen::MatrixXd & master, const Eigen::MatrixXi & MAP, int n, int k, int t);
+void build_V_list_from_master(std::vector<Eigen::MatrixXd> & V, const Eigen::MatrixXd & masterV, const std::vector<std::vector<int>> & map_idxs, int n, int k, int t);
 
 void V_assemble_IP(const Eigen::Ref<const Eigen::MatrixXd> & masterV, 
                    Eigen::MatrixXd & V_out,
-                   const Eigen::Ref<const Eigen::MatrixXi> & MAP,
-                   int i, int k, int t, int kt);
+                   const std::vector<int> & map_idxs, int kt);
 
 Eigen::MatrixXd covCalc(const Eigen::MatrixXd & X);
 
 Eigen::MatrixXd covCalc(const Eigen::MatrixXd & X, const Eigen::MatrixXi & MAP);
 
+Eigen::MatrixXd covCalc(const Eigen::MatrixXd & X, const std::vector<std::vector<int>> & map_idxs, int p);
+
+void covCalc(const Eigen::MatrixXd & X, const std::vector<std::vector<int>> & map_idxs, 
+             Eigen::MatrixXd & cov, int p);
+
 void get_cov_stats(const Eigen::Ref<const Eigen::MatrixXd>& R, 
-                   const Eigen::Ref<const Eigen::MatrixXi>& MAP, 
+                   const std::vector<std::vector<int>>& active_lists, 
                    const std::vector<int>& indices,
                    Eigen::MatrixXd& SumXY, Eigen::MatrixXd& N, 
                    Eigen::MatrixXd& SumX_shared, Eigen::MatrixXd& SumRsq);
@@ -63,16 +72,16 @@ Eigen::MatrixXd Et_assemble(const Eigen::VectorXd & E,
 
 void Et_assemble_IP(const Eigen::Ref<const Eigen::VectorXd> & E, 
                     Eigen::VectorXd & Et,
-                    const Eigen::Ref<const Eigen::MatrixXi> & MAP, 
-                    int i, int k, int t, int kt);
+                    const std::vector<int> & map_idxs, 
+                    int k, int t);
 
 Eigen::MatrixXd Z_assemble(const Eigen::MatrixXd & masterZ, 
                            const Eigen::MatrixXi & MAP,
                            int i, int k, int t, int kt);
 void Z_assemble_IP(const Eigen::Ref<const Eigen::MatrixXd> & masterZt, 
                    Eigen::MatrixXd & Zt_out,
-                   const Eigen::Ref<const Eigen::MatrixXi> & MAP,
-                   int i, int k, int t, int kt);
+                   const std::vector<int> & map_idxs,
+                   int k);
 
 void Et_Z_assemble_IP(const Eigen::Ref<const Eigen::VectorXd> & masterE, 
                    Eigen::VectorXd & Et_out,
@@ -105,18 +114,16 @@ Rcpp::List calc_ZDZ_plus_E(const Eigen::MatrixXd & masterZt,
                           int n, int k, int t, int nkt);
 
 void estimate_beta(const Eigen::MatrixXd & X, const Eigen::VectorXd & y, 
-                   const Eigen::VectorXi kt_vec, const Eigen::MatrixXi & MAP,
+                   const Eigen::VectorXi kt_vec, const std::vector<std::vector<int>> & map_idxs,
                    const Eigen::MatrixXd & masterV, Eigen::VectorXd & beta,
-                   int n, int k, int t, bool verbose=false,
-                   double eigen_threshold=1e-5);
+                   int n, int k, int t, bool verbose, double eigen_threshold=1e-5);
 
 void estimate_beta2(const Eigen::Ref<const Eigen::MatrixXd> & X, 
                     const Eigen::Ref<const Eigen::VectorXd> & y, 
                     const Eigen::Ref<const Eigen::MatrixXd> & Zt,
                     const Eigen::Ref<const Eigen::MatrixXd> & D,
                     const Eigen::Ref<const Eigen::VectorXd> & E,
-                    const Eigen::VectorXi & kt_vec, 
-                    const Eigen::Ref<const Eigen::MatrixXi> & MAP,
+                    const std::vector<std::vector<int>> & map_idxs_kt,
                     Eigen::VectorXd & beta,
                     int n, int k, int t);
 
@@ -124,7 +131,7 @@ Eigen::VectorXd R_expand(const Eigen::VectorXd & R,
                          const Eigen::MatrixXi & MAP,
                          int idx, int q);
 
-Eigen::MatrixXd RtR(const Eigen::MatrixXd & R, const Eigen::MatrixXi & MAP);
+Eigen::MatrixXd RtR(const Eigen::MatrixXd & R, const std::vector<std::vector<int>>& active_lists);
 
 void get_bounds(const Eigen::MatrixXd& cov, const Eigen::ArrayXXd& theta, double& lower, double& upper);
 
