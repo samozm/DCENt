@@ -71,15 +71,21 @@ estimate <- function(X,y,Z,n0,k0,t0,algo=2,max_itr=200,convergence_cutoff=5*(10^
     sigma <- 0
     V_nonzeros_pct <- res$V_nonzeros_pct
   }
+
+  retlist <- list(E=res$E,D=res$D,V=res$Sigma,beta=res$beta,time=timelength,
+              converged=res$converged,sigma=sigma,n_iter=res$n_iter,
+              all_err=res$all_err,MAP=res$MAP,
+              V_nonzeros_pct=V_nonzeros_pct,
+              threshold=threshold)
+  if(algo == 2)
+  {
+    retlist$b <- res$b
+  }
   
   exeTimeClass <- proc.time() - startTime
   exeTime <- as.numeric(exeTimeClass[3])
   timelength <- exeTime
-  return(list(E=res$E,D=res$D,V=res$Sigma,beta=res$beta,time=timelength,
-              converged=res$converged,sigma=sigma,n_iter=res$n_iter,
-              all_err=res$all_err,MAP=res$MAP,
-              V_nonzeros_pct=V_nonzeros_pct,
-              threshold=threshold))#,Sigma=V))
+  return(retlist)#,Sigma=V))
 }
 
 #' Run DCENt algorithm 1 or 2
