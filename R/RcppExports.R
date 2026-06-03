@@ -52,8 +52,8 @@ estimate_all <- function(X, y, masterZ, MAP, n, k, t, max_itr = 250L, convergenc
 #' }
 #'
 #' @export
-estimate_DEbeta <- function(X, y, masterZ, MAP, n, k, t, theta, max_itr = 250L, convergence_cutoff = 0.0001, REML = FALSE, verbose = FALSE, timings = FALSE, n_fold = 5L, custom_theta = FALSE, n_threads = 1L, seed = 1234L) {
-    .Call(`_DCENt_estimate_DEbeta`, X, y, masterZ, MAP, n, k, t, theta, max_itr, convergence_cutoff, REML, verbose, timings, n_fold, custom_theta, n_threads, seed)
+estimate_DEbeta <- function(X, y, masterZ, MAP, n, k, t, theta, max_itr = 250L, convergence_cutoff = 0.0001, REML = FALSE, verbose = FALSE, timings = FALSE, n_fold = 5L, custom_theta = FALSE, n_threads = 1L, seed = 1234L, b1_b2 = FALSE) {
+    .Call(`_DCENt_estimate_DEbeta`, X, y, masterZ, MAP, n, k, t, theta, max_itr, convergence_cutoff, REML, verbose, timings, n_fold, custom_theta, n_threads, seed, b1_b2)
 }
 
 covCalc <- function(X, MAP) {

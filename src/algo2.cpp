@@ -31,6 +31,25 @@ Eigen::VectorXd Zbcalc(const Eigen::MatrixXd & Zt,
     return(Zb);
 }
 
+Eigen::VectorXd Zbcalc2(const Eigen::MatrixXd & Zt, 
+                       const Eigen::MatrixXd & bt, 
+                       const std::vector<std::vector<int>> & map_idxs_kt, 
+                       int n, int k, int t, int nkt)
+{
+    Eigen::VectorXd Zb = Eigen::VectorXd::Zero(nkt);
+    Eigen::MatrixXd Zti(k*t,2*k);
+    int cnt = 0;
+    for(int i = 0; i < n; ++i)
+    {
+        int kt = map_idxs_kt[i].size();
+        if(kt == 0) continue;
+        Z_assemble_IP(Zt,Zti,map_idxs_kt[i],k);
+        Zb.segment(cnt,kt) = Zti.transpose() * bt.col(i); 
+        cnt += kt;
+    }
+    return(Zb);
+}
+
 
 void calc_b(const Eigen::MatrixXd & X, 
             const Eigen::VectorXd & r0, 
@@ -64,17 +83,63 @@ void calc_b(const Eigen::MatrixXd & X,
         ZEEZ.noalias() += EZt * EZt.transpose();
         
         // 4. Vectorized square and multiply (No dense matrix math)
-        EtInvr0 = EInvRow.array().square().transpose() * r0.segment(cnt, kt).array();
+        EtInvr0 = EInvRow.array().square().transpose() * r0.segment(cnt, kt).array(); // kt x 1 vector
         
-        ZiEtInvr0.noalias() = Zti * EtInvr0;
-        DZETEr0.noalias() += Lambda_D.transpose() * ZiEtInvr0;
+        ZiEtInvr0.noalias() = Zti * EtInvr0; // 2k x 1 vector
+        DZETEr0.noalias() += Lambda_D.transpose() * ZiEtInvr0; // 2k x 1 vector
         cnt += kt;
     }
 
     Eigen::MatrixXd DtZEEZD = Eigen::MatrixXd::Identity(q,q);
-    DtZEEZD.noalias() += Lambda_D.transpose() * ZEEZ * Lambda_D;
-    Eigen::MatrixXd DtZEEZDDZETEr0 = DtZEEZD.llt().solve(DZETEr0);
-    b = Lambda_D.transpose() * DtZEEZDDZETEr0;
+    DtZEEZD.noalias() += Lambda_D.transpose() * ZEEZ * Lambda_D; // 2k x 2k matrix
+    Eigen::MatrixXd DtZEEZDDZETEr0 = DtZEEZD.llt().solve(DZETEr0); // 2k x 1 vector
+    b = Lambda_D.transpose() * DtZEEZDDZETEr0; // 2k x 1 vector
+}
+
+void calc_b2(const Eigen::MatrixXd & X, 
+            const Eigen::VectorXd & r0, 
+            const Eigen::MatrixXd & Zt,
+            const Eigen::MatrixXd & Lambda_D, 
+            const Eigen::VectorXd & E, 
+            Eigen::MatrixXd & bt,
+            const std::vector<std::vector<int>> & map_idxs_kt,
+            int n, int k, int t, int nkt)
+{
+    int q = 2*k;
+    bt.setZero(q,n);
+    Eigen::MatrixXd ZEEZ = Eigen::MatrixXd::Zero(q,q);
+    //Eigen::MatrixXd DZETE = Eigen::MatrixXd::Zero(q,nkt);
+    Eigen::VectorXd DZETEr0 = Eigen::VectorXd::Zero(q);
+    Eigen::VectorXd EInv = E.array().inverse(); //E.inverse();
+    Eigen::MatrixXd Zti(q,k*t), EZt(q,k*t);
+    Eigen::VectorXd EtInvr0(k*t), ZiEtInvr0(q),EtInv(k*t);
+    int cnt = 0;
+    for(int i=0;i<n;++i)
+    {
+        int kt = map_idxs_kt[i].size();
+        if(kt == 0) continue;
+        EZt.resize(q,kt);
+        EtInvr0.resize(kt);
+        //Et_Z_assemble_IP(EInv,EtInv,Zt,Zti,MAP,i,k,t,kt);
+        Et_assemble_IP(EInv,EtInv,map_idxs_kt[i],k,t);
+        Z_assemble_IP(Zt,Zti,map_idxs_kt[i],k);
+
+        Eigen::RowVectorXd EInvRow = EtInv.transpose();
+        EZt = Zti* EInvRow.asDiagonal();
+        ZEEZ.noalias() = EZt * EZt.transpose();
+        
+        // 4. Vectorized square and multiply (No dense matrix math)
+        EtInvr0 = EInvRow.array().square().transpose() * r0.segment(cnt, kt).array(); // kt x 1 vector  
+        ZiEtInvr0.noalias() = Zti * EtInvr0; // 2k x 1 vector
+        DZETEr0.noalias() = Lambda_D.transpose() * ZiEtInvr0; // 2k x 1 vector
+
+        Eigen::MatrixXd DtZEEZD = Eigen::MatrixXd::Identity(q,q);
+        DtZEEZD.noalias() += Lambda_D.transpose() * ZEEZ * Lambda_D; // 2k x 2k matrix
+        Eigen::MatrixXd DtZEEZDDZETEr0 = DtZEEZD.llt().solve(DZETEr0); // 2k x 1 vector
+        bt.col(i) = Lambda_D.transpose() * DtZEEZDDZETEr0; // 2k x 1 vector
+
+        cnt += kt;
+    }
 }
 
 void estimate_E(const Eigen::MatrixXd & X, 
@@ -83,11 +148,22 @@ void estimate_E(const Eigen::MatrixXd & X,
                 const Eigen::MatrixXd & Lambda_D, 
                 Eigen::VectorXd & Lambda_E,
                 const std::vector<std::vector<int>> & map_idxs_kt, 
-                int n, int k, int t, int nkt)
+                int n, int k, int t, int nkt,
+                bool b1_b2=true)
 {
-    Eigen::VectorXd b;
-    calc_b(X,r0,Zt,Lambda_D,Lambda_E.array().square(),b,map_idxs_kt,n,k,t,nkt);
-    Eigen::VectorXd r = r0 - Zbcalc(Zt, b, map_idxs_kt, n, k, t, nkt);
+    Eigen::VectorXd r = Eigen::VectorXd::Zero(nkt);
+    if(b1_b2)
+    {
+        Eigen::MatrixXd bt(2*k,n);
+        calc_b2(X,r0,Zt,Lambda_D,Lambda_E.array().square(),bt,map_idxs_kt,n,k,t,nkt);
+        r = r0 - Zbcalc2(Zt, bt, map_idxs_kt, n, k, t, nkt);
+    } else {
+        Eigen::VectorXd b;
+        calc_b(X,r0,Zt,Lambda_D,Lambda_E.array().square(),b,map_idxs_kt,n,k,t,nkt);
+        r =r0 - Zbcalc(Zt, b, map_idxs_kt, n, k, t, nkt);
+    }
+   
+    
     //Eigen::MatrixXd R = Eigen::MatrixXd::Zero(n*t,k);
     Eigen::VectorXd sum_val = Eigen::VectorXd::Zero(k);
     Eigen::VectorXd sum_sq = Eigen::VectorXd::Zero(k);
@@ -669,7 +745,8 @@ Rcpp::List estimate_DEbeta(const Eigen::Map<Eigen::MatrixXd> X,
                            int n_fold=5,
                            bool custom_theta = false,
                            int n_threads = 1,
-                           int seed=1234)
+                           int seed=1234
+                        )
 {
     // Protect C++ from R's NAs
     // TODO: better NA handling?
@@ -752,7 +829,8 @@ Rcpp::List estimate_DEbeta(const Eigen::Map<Eigen::MatrixXd> X,
         double err0 = (Lambda_D - D_prev).squaredNorm() / D_prev.squaredNorm();
 
         E_prev = Lambda_E;
-        estimate_E(X,r0,masterZt,Lambda_D,Lambda_E,map_idxs_kt,n,k,t,nkt);
+        b1_b2 = true;
+        estimate_E(X,r0,masterZt,Lambda_D,Lambda_E,map_idxs_kt,n,k,t,nkt,b1_b2);
         auto t4 = std::chrono::high_resolution_clock::now();
         double err1 = (Lambda_E - E_prev).squaredNorm() / E_prev.squaredNorm();
 
@@ -816,17 +894,19 @@ Rcpp::List estimate_DEbeta(const Eigen::Map<Eigen::MatrixXd> X,
     Sigma.diagonal().array() += Et.array();
     //Eigen::MatrixXd Sigma(nkt,nkt);
     //calc_ZDZ_plus_E(masterZt,D,E,Sigma,MAP,n,k,t,nkt);
-    Eigen::VectorXd b;
-    calc_b(X, r0, masterZt, Lambda_D, E, b, map_idxs_kt, n, k, t, nkt);
+    Eigen::MatrixXd b;
+    calc_b2(X, r0, masterZt, Lambda_D, E, b, map_idxs_kt, n, k, t, nkt);
 
     return(Rcpp::List::create(Rcpp::Named("Sigma")=Sigma,
            Rcpp::Named("E") = E,Rcpp::Named("D") = D, 
            Rcpp::Named("Lambda_E") = Lambda_E, 
+           Rcpp::Named("Lambda_D") = Lambda_D, 
            Rcpp::Named("beta") = beta, 
            Rcpp::Named("n_iter") = n_itr,
            Rcpp::Named("all_err") = all_err,
            Rcpp::Named("converged") = converged, 
            Rcpp::Named("sigma") = sigma2,
            Rcpp::Named("threshold")=theta,
+           Rcpp::Named("MAP")=MAP,
            Rcpp::Named("b") = b));
 }
