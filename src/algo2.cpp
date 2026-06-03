@@ -829,7 +829,7 @@ Rcpp::List estimate_DEbeta(const Eigen::Map<Eigen::MatrixXd> X,
         double err0 = (Lambda_D - D_prev).squaredNorm() / D_prev.squaredNorm();
 
         E_prev = Lambda_E;
-        b1_b2 = true;
+        bool b1_b2 = true;
         estimate_E(X,r0,masterZt,Lambda_D,Lambda_E,map_idxs_kt,n,k,t,nkt,b1_b2);
         auto t4 = std::chrono::high_resolution_clock::now();
         double err1 = (Lambda_E - E_prev).squaredNorm() / E_prev.squaredNorm();
